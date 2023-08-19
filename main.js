@@ -82,6 +82,7 @@ async function getTPS() {
         });
 
         let data = await response.json();
+        console.log(data);
         return data;
     } catch (error) {
         console.error(error);
@@ -118,53 +119,36 @@ async function getVol() {
             diffusd: diffusd,
             diffsol: diffsol
         };
-        console.log(current);
+        // console.log(current);
         fs.writeFileSync('vol.json', JSON.stringify(current, null, 2));
-
         return current;
     } catch (error) {
         console.error(error);
     }
 }
 
-async function fetchQuote() {
-    try {
-        let response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana,solana-aud&vs_currencies=usd');
-        let data = await response.json();
-        return data;
-    } catch (error) {
-        console.error(error);
-    }
-}
-console.log('Starting cron job...' & when);
-cron.job(when || '* * * * * *', async () => {
-
+const job = cron.job(when || '0 * * * * *', async () => {
     (async () => {
         const tweet = new EpochInfo();
-
         try {
             await tweet.fetchData();
             const tps = await getTPS();
-            // const price = await fetchQuote();
             const volume = await getVol();
-
-            const template = `
-Price: $${volume.price} 💸
+            const template = `Price: $${volume.price} 💸
 TPS: ${(tps.result[0].numTransactions / tps.result[0].samplePeriodSecs).toFixed(0)} 💨
 Tx/Block: ${tweet.block.transactions.length} 📈
 Volume: ${volume.diffsol}Ⓞ / $${volume.diffusd} 💹
 Total Transactions: ${tweet.epochInfo.transactionCount.toLocaleString()} 🤯
-Latest Block: ${tweet.epochInfo.absoluteSlot.toLocaleString()} 🧱
-Current Epoch: ${tweet.epochInfo.epoch} / ${(tweet.epochInfo.epochCompletedPercent).toFixed(2)}% ⏰
+Block: ${tweet.epochInfo.absoluteSlot.toLocaleString()} 🧱
+Epoch: ${tweet.epochInfo.epoch} / ${(tweet.epochInfo.epochCompletedPercent).toFixed(2)}% ⏰
 Total Supply (Circ / Non): ${(tweet.supply.total / LAMPORTS_PER_SOL / 1_000_000).toFixed(0)}m (${(tweet.supply.circulating / LAMPORTS_PER_SOL / 1_000_000).toFixed(0)} / ${(tweet.supply.nonCirculating / LAMPORTS_PER_SOL / 1_000_000).toFixed(0)}) 💰
-Validators (Current / Delinquient): ${tweet.validators.validators.length} (${tweet.validatorCurrent} / ${tweet.validatorDelinquient}) 🧳
-                        `
+Validators (Current / Delinquient): ${tweet.validators.validators.length} (${tweet.validatorCurrent} / ${tweet.validatorDelinquient}) 🧳`
             console.log(template);
-
             await tweeter(template);
-
         } catch (error) {
             console.error(error);
         }
     })();
-}).start();
+})
+job.start();
+
