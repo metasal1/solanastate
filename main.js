@@ -1,7 +1,11 @@
 import { exec } from 'child_process';
 import tweeter from './tweeter.js';
 import cron from 'cron';
+import { config } from './config.js';
+import fs from 'fs';
+import fetch from 'node-fetch';
 
+const when = process.argv[2];
 const LAMPORTS_PER_SOL = 1000000000;
 class EpochInfo {
     constructor(epochInfo, validators, slot, supply) {
@@ -43,15 +47,11 @@ class EpochInfo {
                     this.validatorDelinquient += 1;
                 }
             });
-
-
-
         } catch (error) {
             console.error(error);
         }
     }
 }
-
 function executeCommand(command) {
     return new Promise((resolve, reject) => {
         exec(
@@ -71,7 +71,6 @@ function executeCommand(command) {
         );
     });
 }
-
 async function getTPS() {
     try {
         let bodyContent = JSON.stringify({ "jsonrpc": "2.0", "id": 1, "method": "getRecentPerformanceSamples", "params": [1] });
@@ -88,6 +87,45 @@ async function getTPS() {
         console.error(error);
     }
 }
+async function getVol() {
+    try {
+
+        const response = await fetch('https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol=SOL', {
+            headers: {
+                'X-CMC_PRO_API_KEY': config.cmc_key
+            }
+        })
+
+        let json = await response.json();
+
+        const newData = json.data.SOL.quote.USD;
+
+        // calculate sales volume
+        const volsol = Math.round(newData.volume_24h / newData.price);
+        const last = JSON.parse(fs.readFileSync('vol.json', 'utf8'));
+
+        // volume difference in SOL
+        const diffsol = Math.round(volsol - last.volsol);
+
+        // volume difference in USD
+        const diffusd = Math.round(newData.volume_24h - last.volusd);
+
+        const current = {
+            timestamp: newData.last_updated,
+            price: (newData.price).toFixed(2),
+            volusd: Math.round(newData.volume_24h),
+            volsol: volsol,
+            diffusd: diffusd,
+            diffsol: diffsol
+        };
+        console.log(current);
+        fs.writeFileSync('vol.json', JSON.stringify(current, null, 2));
+
+        return current;
+    } catch (error) {
+        console.error(error);
+    }
+}
 
 async function fetchQuote() {
     try {
@@ -98,8 +136,8 @@ async function fetchQuote() {
         console.error(error);
     }
 }
-
-cron.job('*/5 * * * *', async () => {
+console.log('Starting cron job...' & when);
+cron.job(when || '* * * * * *', async () => {
 
     (async () => {
         const tweet = new EpochInfo();
@@ -107,12 +145,14 @@ cron.job('*/5 * * * *', async () => {
         try {
             await tweet.fetchData();
             const tps = await getTPS();
-            const price = await fetchQuote();
+            // const price = await fetchQuote();
+            const volume = await getVol();
 
             const template = `
-Price: $${price.solana.usd} 💸
+Price: $${volume.price} 💸
 TPS: ${(tps.result[0].numTransactions / tps.result[0].samplePeriodSecs).toFixed(0)} 💨
 Tx/Block: ${tweet.block.transactions.length} 📈
+Volume: ${volume.diffsol}Ⓞ / $${volume.diffusd} 💹
 Total Transactions: ${tweet.epochInfo.transactionCount.toLocaleString()} 🤯
 Latest Block: ${tweet.epochInfo.absoluteSlot.toLocaleString()} 🧱
 Current Epoch: ${tweet.epochInfo.epoch} / ${(tweet.epochInfo.epochCompletedPercent).toFixed(2)}% ⏰
